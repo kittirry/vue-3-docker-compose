@@ -130,7 +130,6 @@ const IndexPage = defineComponent({
       minBoardSize: 'minBoardSize',
       secondsUntilNextFree: 'secondsUntilNextFree',
     }),
-
     fieldCssVars () {
       const base = 80
       const min = 25
@@ -145,12 +144,10 @@ const IndexPage = defineComponent({
         '--puzzle-tile-font': `${font}px`,
       }
     },
-
     formattedElapsed () {
       return
         this.formatSeconds(this.elapsedSeconds)
     },
-
     recordsList () {
       const keys = Object.keys(this.records).sort((a, b) => {
         return Number(a) - Number(b)
@@ -185,7 +182,6 @@ const IndexPage = defineComponent({
       'tryMoveTile',
       'tickSecond',
     ]),
-
     formatSeconds (totalSeconds) {
       const s = Math.max(0, Math.floor(Number(totalSeconds)))
       const m = Math.floor(s / 60)
