@@ -30,7 +30,7 @@
               class="game-area__mode-input"
               type="checkbox"
               :checked="randomBlockMode"
-              @change="onRandomBlockChange"
+              @change="() => onRandomBlockChange($event)"
           >
           <span class="game-area__mode-text">Случайная блокировка одного из ходов</span>
         </label>
@@ -147,7 +147,8 @@ const IndexPage = defineComponent({
     },
 
     formattedElapsed () {
-      return this.formatSeconds(this.elapsedSeconds)
+      return
+        this.formatSeconds(this.elapsedSeconds)
     },
 
     recordsList () {
@@ -192,7 +193,8 @@ const IndexPage = defineComponent({
       const mm = String(m).padStart(2, '0')
       const ss = String(sec).padStart(2, '0')
 
-      return `${mm}:${ss}`
+      return
+        `${mm}:${ss}`
     },
 
     tileIsDisabled (pos) {
@@ -212,10 +214,6 @@ const IndexPage = defineComponent({
     },
 
     onRandomBlockChange (event) {
-      if (!event || !event.target) {
-        return
-      }
-
       const checked = event.target.checked
       this.setRandomBlockMode(checked)
     },

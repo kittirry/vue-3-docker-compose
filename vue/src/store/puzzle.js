@@ -380,20 +380,19 @@ export default {
     },
 
     applyMove ({ state, dispatch, commit, getters }, { voidPos, pos, useFreeToken }) {
-      dispatch('switchCells', { p1: voidPos, p2: pos })
-      commit(MUTATIONS.SET_STEP_COUNT, state.stepCount + 1)
+  commit(MUTATIONS.SET_STEP_COUNT, state.stepCount + 1)
 
-      if (useFreeToken) {
-        commit(MUTATIONS.SET_FREE_MOVE_TOKENS, Math.max(0, state.freeMoveTokens - 1))
-      }
+  if (useFreeToken) {
+    commit(MUTATIONS.SET_FREE_MOVE_TOKENS, Math.max(0, state.freeMoveTokens - 1))
+  }
 
-      dispatch('rollBlockedNeighbor')
-
-      if (getters.isWin) {
-        commit(MUTATIONS.SET_GAME_COMPLETED, true)
-        dispatch('saveBestTimeIfNeeded')
-      }
-    },
+  dispatch('rollBlockedNeighbor')
+  if (getters.isWin) {
+    commit(MUTATIONS.SET_GAME_COMPLETED, true)
+    dispatch('saveBestTimeIfNeeded')
+  }
+  dispatch('switchCells', { p1: voidPos, p2: pos })
+},
 
     resizeBoardDelta ({ state, dispatch }, delta) {
       const next = state.boardSize + delta

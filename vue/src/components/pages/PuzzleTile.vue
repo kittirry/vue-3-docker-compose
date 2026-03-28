@@ -91,7 +91,7 @@ export default PuzzleTile
   }
 
   &--blocked {
-    background-color: #ef5350 !important;
+    background-color: #ef5350;
     cursor: not-allowed;
     opacity: 0.8;
 
