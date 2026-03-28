@@ -1,0 +1,1 @@
+export const FREE_MOVE_INTERVAL_SECONDS = 60
