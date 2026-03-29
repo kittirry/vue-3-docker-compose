@@ -11,6 +11,7 @@
 
       <div class="game-area__stats game-area__stats--timer">
         Время: {{ formattedElapsed }}
+        <span v-if="isFastForward" class="game-area__stats--fast"> ⚡</span>
       </div>
 
       <div class="game-area__stats game-area__stats--free">
@@ -32,7 +33,17 @@
               :checked="randomBlockMode"
               @change="() => onRandomBlockChange($event)"
           >
-          <span class="game-area__mode-text">Случайная блокировка одного из ходов</span>
+          <span class="game-area__mode-text">Случайная блокировка</span>
+        </label>
+
+        <label class="game-area__mode-label">
+          <input
+              class="game-area__mode-input"
+              type="checkbox"
+              :checked="freezeMode"
+              @change="() => onFreezeModeChange($event)"
+          >
+          <span class="game-area__mode-text">Заморозка на месте</span>
         </label>
       </div>
 
@@ -55,7 +66,12 @@
         </ul>
       </div>
 
-      <div class="game-area__field" :style="fieldCssVars">
+      <div
+          class="game-area__field"
+          :style="fieldCssVars"
+          @touchstart="() => handleTouchStart($event)"
+          @touchend="() => handleTouchEnd($event)"
+      >
         <PuzzleTile
             v-for="item in tileArray"
             :key="item.pos"
@@ -63,6 +79,7 @@
             :is-void="item.isVoid"
             :finished="gameCompleted"
             :is-disabled="tileIsDisabled(item.pos)"
+            :is-frozen="item.isFrozen"
             @click="() => onTileTap(item.pos)"
         />
       </div>
@@ -109,6 +126,8 @@ const IndexPage = defineComponent({
   },
   data () {
     return {
+      touchStartX: 0,
+      touchStartY: 0,
       timerId: null,
     }
   },
@@ -117,11 +136,13 @@ const IndexPage = defineComponent({
       'boardSize',
       'stepCount',
       'randomBlockMode',
+      'freezeMode',
       'elapsedSeconds',
       'freeMoveTokens',
       'blockedPosition',
       'records',
       'gameCompleted',
+      'isFastForward',
     ]),
     ...mapGetters('puzzle', {
       winStatus: 'isWin',
@@ -180,8 +201,10 @@ const IndexPage = defineComponent({
       'resetGame',
       'resizeBoardDelta',
       'setRandomBlockMode',
+      'setFreezeMode',
       'tryMoveTile',
       'tickSecond',
+      'recordMove',
     ]),
     formatSeconds (totalSeconds) {
       const s = Math.max(0, Math.floor(Number(totalSeconds)))
@@ -192,7 +215,6 @@ const IndexPage = defineComponent({
 
       return `${mm}:${ss}`
     },
-
     tileIsDisabled (pos) {
       if (!this.randomBlockMode) {
         return false
@@ -204,14 +226,59 @@ const IndexPage = defineComponent({
 
       return this.freeMoveTokens <= 0
     },
-
     onTileTap (pos) {
       this.tryMoveTile(pos)
     },
-
     onRandomBlockChange (event) {
+      if (!event || !event.target) {
+        return
+      }
       const checked = event.target.checked
       this.setRandomBlockMode(checked)
+    },
+    onFreezeModeChange (event) {
+      if (!event || !event.target) {
+        return
+      }
+      const checked = event.target.checked
+      this.setFreezeMode(checked)
+    },
+    handleTouchStart (event) {
+      this.touchStartX = event.touches[0].clientX
+      this.touchStartY = event.touches[0].clientY
+    },
+    handleTouchEnd (event) {
+      const touchEndX = event.changedTouches[0].clientX
+      const touchEndY = event.changedTouches[0].clientY
+
+      const dx = touchEndX - this.touchStartX
+      const dy = touchEndY - this.touchStartY
+
+      const voidPos = this.tileArray.find((t) => t.isVoid).pos
+      const row = Math.floor(voidPos / this.boardSize)
+      const col = voidPos % this.boardSize
+
+      let targetPos = -1
+
+      if (Math.abs(dx) > Math.abs(dy)) {
+        if (dx > 0 && col < this.boardSize - 1) {
+          targetPos = voidPos + 1
+        }
+        if (dx < 0 && col > 0) {
+          targetPos = voidPos - 1
+        }
+      } else {
+        if (dy > 0 && row < this.boardSize - 1) {
+          targetPos = voidPos + this.boardSize
+        }
+        if (dy < 0 && row > 0) {
+          targetPos = voidPos - this.boardSize
+        }
+      }
+
+      if (targetPos !== -1) {
+        this.tryMoveTile(targetPos)
+      }
     },
   },
 })
@@ -284,10 +351,19 @@ export default IndexPage
       font-size: 15px;
       font-weight: normal;
     }
+
+    &--fast {
+      color: #ff5252;
+      animation: pulse 0.5s infinite;
+    }
   }
 
   &__mode {
     margin-bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
   }
 
   &__mode-label {
@@ -356,6 +432,7 @@ export default IndexPage
     background-color: #1565c0;
     padding: 3px;
     border-radius: 8px;
+    touch-action: none;
   }
 
   &__controls {
@@ -398,6 +475,20 @@ export default IndexPage
     &--plus {
       background-color: #0d47a1;
     }
+  }
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+
+  100% {
+    opacity: 1;
   }
 }
 </style>
