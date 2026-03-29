@@ -3,18 +3,66 @@
     <div class="game-area__content">
       <h2 class="game-area__title">Пятнашки {{ boardSize }}×{{ boardSize }}</h2>
 
-      <div v-if="winStatus" class="game-area__message">ПОБЕДА!</div>
+      <div v-if="gameCompleted" class="game-area__message">ПОБЕДА!</div>
 
-      <div class="game-area__stats">Ходы: {{ stepCount }}</div>
+      <div class="game-area__stats">
+        Ходы: {{ stepCount }}
+      </div>
 
-      <div class="game-area__field" :style="fieldConfig">
+      <div class="game-area__stats game-area__stats--timer">
+        Время: {{ formattedElapsed }}
+      </div>
+
+      <div class="game-area__stats game-area__stats--free">
+        Свободные ходы: {{ freeMoveTokens }}
+      </div>
+
+      <div
+          v-if="secondsUntilNextFree !== null"
+          class="game-area__stats game-area__stats--next-free"
+      >
+        До следующего бонуса: {{ secondsUntilNextFree }} с
+      </div>
+
+      <div class="game-area__mode">
+        <label class="game-area__mode-label">
+          <input
+              class="game-area__mode-input"
+              type="checkbox"
+              :checked="randomBlockMode"
+              @change="() => onRandomBlockChange($event)"
+          >
+          <span class="game-area__mode-text">Случайная блокировка одного из ходов</span>
+        </label>
+      </div>
+
+      <div class="game-area__records">
+        <div class="game-area__records-title">Рекорды (лучшее время, сек)</div>
+        <div v-if="bestTimeForCurrentSize !== null" class="game-area__records-best">
+          Рекорд для этого поля: {{ formatSeconds(bestTimeForCurrentSize) }}
+        </div>
+        <div v-else class="game-area__records-best">
+          Рекорд для этого поля: пока нет
+        </div>
+        <ul class="game-area__records-list">
+          <li
+              v-for="entry in recordsList"
+              :key="entry.key"
+              class="game-area__records-item"
+          >
+            {{ entry.label }}
+          </li>
+        </ul>
+      </div>
+
+      <div class="game-area__field" :style="fieldCssVars">
         <PuzzleTile
             v-for="item in tileArray"
             :key="item.pos"
             :num="item.num"
             :is-void="item.isVoid"
-            :finished="winStatus"
-            :tile-size="tileSize"
+            :finished="gameCompleted"
+            :is-disabled="tileIsDisabled(item.pos)"
             @click="() => onTileTap(item.pos)"
         />
       </div>
@@ -22,14 +70,16 @@
       <div class="game-area__controls">
         <button
             class="game-area__btn game-area__btn--minus"
-            @click="() => resizeBoard(-1)"
+            type="button"
             :disabled="boardSize <= minBoardSize"
+            @click="() => resizeBoardDelta(-1)"
         >
           −
         </button>
 
         <button
             class="game-area__btn game-area__btn--reset"
+            type="button"
             @click="() => resetGame()"
         >
           Перемешать
@@ -37,7 +87,8 @@
 
         <button
             class="game-area__btn game-area__btn--plus"
-            @click="() => resizeBoard(1)"
+            type="button"
+            @click="() => resizeBoardDelta(1)"
         >
           +
         </button>
@@ -47,160 +98,125 @@
 </template>
 
 <script>
+import { defineComponent } from 'vue'
+import { mapState, mapGetters, mapActions } from 'vuex'
 import PuzzleTile from './PuzzleTile.vue'
 
-export default {
+const IndexPage = defineComponent({
   name: 'IndexPage',
   components: {
-    PuzzleTile
+    PuzzleTile,
   },
-  data() {
+  data () {
     return {
-      boardSize: 4,
-      minBoardSize: 3,
-      gridData: [],
-      stepCount: 0
+      timerId: null,
     }
   },
   computed: {
-    winStatus() {
-      return this.validateWin()
-    },
-
-    tileArray() {
-      return this.gridData.map((val, idx) => {
-        return {
-          pos: idx,
-          num: val,
-          isVoid: val === 0
-        }
-      })
-    },
-
-    fieldConfig() {
-      return {
-        'grid-template-columns': `repeat(${this.boardSize}, 1fr)`,
-        'grid-template-rows': `repeat(${this.boardSize}, 1fr)`
-      }
-    },
-
-    tileSize() {
+    ...mapState('puzzle', [
+      'boardSize',
+      'stepCount',
+      'randomBlockMode',
+      'elapsedSeconds',
+      'freeMoveTokens',
+      'blockedPosition',
+      'records',
+      'gameCompleted',
+    ]),
+    ...mapGetters('puzzle', {
+      winStatus: 'isWin',
+      tileArray: 'tileArray',
+      bestTimeForCurrentSize: 'bestTimeForCurrentSize',
+      minBoardSize: 'minBoardSize',
+      secondsUntilNextFree: 'secondsUntilNextFree',
+    }),
+    fieldCssVars () {
       const base = 80
       const min = 25
       const size = Math.max(min, base - (this.boardSize - 4) * 5)
       const font = Math.max(10, 28 - (this.boardSize - 4) * 2)
 
       return {
-        width: `${size}px`,
-        height: `${size}px`,
-        fontSize: `${font}px`
+        '--puzzle-cols': String(this.boardSize),
+        '--puzzle-rows': String(this.boardSize),
+        '--puzzle-tile-w': `${size}px`,
+        '--puzzle-tile-h': `${size}px`,
+        '--puzzle-tile-font': `${font}px`,
       }
+    },
+    formattedElapsed () {
+      return (
+        this.formatSeconds(this.elapsedSeconds)
+      )
+    },
+    recordsList () {
+      const keys = Object.keys(this.records).sort((a, b) => {
+        return Number(a) - Number(b)
+      })
+
+      return keys.map((k) => {
+        return {
+          key: k,
+          label: `${k}×${k}: ${this.formatSeconds(this.records[k])}`,
+        }
+      })
+    },
+  },
+  mounted () {
+    this.initGame()
+    this.timerId = setInterval(() => {
+      this.tickSecond()
+    }, 1000)
+  },
+  beforeUnmount () {
+    if (this.timerId !== null) {
+      clearInterval(this.timerId)
+      this.timerId = null
     }
   },
   methods: {
-    validateWin() {
-      const total = this.boardSize * this.boardSize
+    ...mapActions('puzzle', [
+      'initGame',
+      'resetGame',
+      'resizeBoardDelta',
+      'setRandomBlockMode',
+      'tryMoveTile',
+      'tickSecond',
+    ]),
+    formatSeconds (totalSeconds) {
+      const s = Math.max(0, Math.floor(Number(totalSeconds)))
+      const m = Math.floor(s / 60)
+      const sec = s % 60
+      const mm = String(m).padStart(2, '0')
+      const ss = String(sec).padStart(2, '0')
 
-      for (let i = 0; i < total; i++) {
-        const target = (i < total - 1) ? (i + 1) : 0
-
-        if (this.gridData[i] !== target) {
-          return false
-        }
-      }
-
-      return true
+      return `${mm}:${ss}`
     },
 
-    resizeBoard(delta) {
-      const newSize = this.boardSize + delta
-
-      if (newSize >= this.minBoardSize) {
-        this.boardSize = newSize
-        this.resetGame()
+    tileIsDisabled (pos) {
+      if (!this.randomBlockMode) {
+        return false
       }
+
+      if (this.blockedPosition !== pos) {
+        return false
+      }
+
+      return this.freeMoveTokens <= 0
     },
 
-    resetGame() {
-      this.stepCount = 0
-
-      const total = this.boardSize * this.boardSize
-
-      this.gridData = Array.from(
-          { length: total },
-          (_, i) => {
-            return (i + 1) % total
-          }
-      )
-
-      this.mixBoard()
+    onTileTap (pos) {
+      this.tryMoveTile(pos)
     },
 
-    mixBoard() {
-      let lastPos = -1
-      const mixSteps = this.boardSize * this.boardSize * 10
-
-      for (let i = 0; i < mixSteps; i++) {
-        const voidPos = this.gridData.indexOf(0)
-        const adj = this.getAdjacent(voidPos)
-        const allowed = adj.filter((n) => {
-          return n !== lastPos
-        })
-        const chosen = allowed[Math.floor(Math.random() * allowed.length)]
-
-        this.switchCells(voidPos, chosen)
-        lastPos = voidPos
-      }
+    onRandomBlockChange (event) {
+      const checked = event.target.checked
+      this.setRandomBlockMode(checked)
     },
-
-    getAdjacent(pos) {
-      const result = []
-      const row = Math.floor(pos / this.boardSize)
-      const col = pos % this.boardSize
-
-      if (row > 0) {
-        result.push(pos - this.boardSize)
-      }
-
-      if (row < this.boardSize - 1) {
-        result.push(pos + this.boardSize)
-      }
-
-      if (col > 0) {
-        result.push(pos - 1)
-      }
-
-      if (col < this.boardSize - 1) {
-        result.push(pos + 1)
-      }
-
-      return result
-    },
-
-    onTileTap(pos) {
-      if (this.winStatus) {
-        return
-      }
-
-      const voidPos = this.gridData.indexOf(0)
-      const adj = this.getAdjacent(voidPos)
-
-      if (adj.includes(pos)) {
-        this.switchCells(voidPos, pos)
-        this.stepCount++
-      }
-    },
-
-    switchCells(p1, p2) {
-      const buffer = this.gridData[p1]
-      this.gridData[p1] = this.gridData[p2]
-      this.gridData[p2] = buffer
-    }
   },
-  mounted() {
-    this.resetGame()
-  }
-}
+})
+
+export default IndexPage
 </script>
 
 <style scoped lang="scss">
@@ -246,12 +262,82 @@ export default {
     color: #64b5f6;
     font-size: 18px;
     font-weight: bold;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
     font-family: sans-serif;
 
     @media (max-width: 500px) {
       font-size: 16px;
     }
+
+    &--timer {
+      color: #fff59d;
+    }
+
+    &--free {
+      color: #ffcc80;
+      font-size: 16px;
+      font-weight: normal;
+    }
+
+    &--next-free {
+      color: #ce93d8;
+      font-size: 15px;
+      font-weight: normal;
+    }
+  }
+
+  &__mode {
+    margin-bottom: 16px;
+  }
+
+  &__mode-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: #e3f2fd;
+    font-family: sans-serif;
+    font-size: 15px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  &__mode-input {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+  }
+
+  &__mode-text {
+    text-align: left;
+  }
+
+  &__records {
+    margin-bottom: 16px;
+    color: #b3e5fc;
+    font-family: sans-serif;
+    font-size: 14px;
+  }
+
+  &__records-title {
+    font-weight: bold;
+    margin-bottom: 6px;
+    color: #e1f5fe;
+  }
+
+  &__records-best {
+    margin-bottom: 8px;
+  }
+
+  &__records-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 auto;
+    max-width: 280px;
+    text-align: left;
+  }
+
+  &__records-item {
+    padding: 2px 0;
   }
 
   &__message {
@@ -263,6 +349,8 @@ export default {
 
   &__field {
     display: inline-grid;
+    grid-template-columns: repeat(var(--puzzle-cols, 4), var(--puzzle-tile-w, 80px));
+    grid-template-rows: repeat(var(--puzzle-rows, 4), var(--puzzle-tile-h, 80px));
     gap: 3px;
     margin: 0 auto 30px;
     background-color: #1565c0;
