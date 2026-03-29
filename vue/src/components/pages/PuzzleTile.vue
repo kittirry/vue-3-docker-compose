@@ -6,6 +6,7 @@
   >
     <span v-if="!isVoid">{{ num }}</span>
     <span v-if="isDisabled && !isVoid" class="game-area__tile-lock">🔒</span>
+    <span v-if="isFrozen && !isVoid" class="game-area__tile-ice">❄️</span>
   </div>
 </template>
 
@@ -17,20 +18,24 @@ const PuzzleTile = defineComponent({
   props: {
     num: {
       type: Number,
-      required: true
+      required: true,
     },
     isVoid: {
       type: Boolean,
-      default: false
+      default: false,
     },
     finished: {
       type: Boolean,
-      default: false
+      default: false,
     },
     isDisabled: {
       type: Boolean,
-      default: false
-    }
+      default: false,
+    },
+    isFrozen: {
+      type: Boolean,
+      default: false,
+    },
   },
   emits: ['click'],
   computed: {
@@ -38,19 +43,20 @@ const PuzzleTile = defineComponent({
       return {
         'game-area__tile--empty': this.isVoid,
         'game-area__tile--complete': this.finished,
-        'game-area__tile--blocked': this.isDisabled
+        'game-area__tile--blocked': this.isDisabled,
+        'game-area__tile--frozen': this.isFrozen,
       }
-    }
+    },
   },
   methods: {
     handleClick () {
-      if (this.isVoid || this.isDisabled) {
+      if (this.isVoid || this.isDisabled || this.isFrozen) {
         return
       }
 
       this.$emit('click')
-    }
-  }
+    },
+  },
 })
 
 export default PuzzleTile
@@ -71,7 +77,7 @@ export default PuzzleTile
   font-family: sans-serif;
   cursor: pointer;
   user-select: none;
-  transition: all 0.15s ease;
+  transition: transform 0.2s ease, background-color 0.2s ease;
   box-sizing: border-box;
   position: relative;
 
@@ -100,7 +106,25 @@ export default PuzzleTile
     }
   }
 
+  &--frozen {
+    background-color: #4dd0e1;
+    cursor: not-allowed;
+    opacity: 0.9;
+
+    &:active {
+      transform: none;
+    }
+  }
+
   &-lock {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 14px;
+    pointer-events: none;
+  }
+
+  &-ice {
     position: absolute;
     top: 2px;
     right: 2px;

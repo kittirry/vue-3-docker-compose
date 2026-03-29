@@ -1,17 +1,23 @@
-import { FREE_MOVE_INTERVAL_SECONDS } from '@/constants/puzzleGame.js'
-import { STORAGE_KEY_PUZZLE_RECORDS } from '@/constants/puzzleStorage.js'
+import { FREE_MOVE_INTERVAL_SECONDS, FAST_FORWARD_DELAY, PENALTY_SECONDS, STORAGE_KEY_PUZZLE_RECORDS } from '@/constants/puzzleGame.js'
 
 const MUTATIONS = {
   SET_GRID_DATA: 'SET_GRID_DATA',
   SET_BOARD_SIZE: 'SET_BOARD_SIZE',
   SET_STEP_COUNT: 'SET_STEP_COUNT',
   SET_RANDOM_BLOCK_MODE: 'SET_RANDOM_BLOCK_MODE',
+  SET_FREEZE_MODE: 'SET_FREEZE_MODE',
   SET_BLOCKED_POSITION: 'SET_BLOCKED_POSITION',
   SET_ELAPSED_SECONDS: 'SET_ELAPSED_SECONDS',
   SET_FREE_MOVE_TOKENS: 'SET_FREE_MOVE_TOKENS',
   SET_FREE_MOVE_TICK: 'SET_FREE_MOVE_TICK',
   SET_GAME_COMPLETED: 'SET_GAME_COMPLETED',
   SET_RECORDS: 'SET_RECORDS',
+  SET_MOVE_HISTORY: 'SET_MOVE_HISTORY',
+  SET_LAST_MOVE_TIME: 'SET_LAST_MOVE_TIME',
+  SET_FAST_FORWARD: 'SET_FAST_FORWARD',
+  ADD_PENALTY_TIME: 'ADD_PENALTY_TIME',
+  SET_FROZEN_TILES: 'SET_FROZEN_TILES',
+  UPDATE_FROZEN_TILES: 'UPDATE_FROZEN_TILES',
 }
 
 const minBoardSize = 3
@@ -20,10 +26,10 @@ const createSolvedGrid = (size) => {
   const total = size * size
 
   return Array.from(
-      { length: total },
-      (_, i) => {
-        return (i + 1) % total
-      }
+    { length: total },
+    (_, i) => {
+      return (i + 1) % total
+    }
   )
 }
 
@@ -55,9 +61,7 @@ const validateWin = (state) => {
   const total = state.boardSize * state.boardSize
 
   for (let i = 0; i < total; i++) {
-    const target = (i < total - 1)
-        ? (i + 1)
-        : 0
+    const target = (i < total - 1) ? (i + 1) : 0
 
     if (state.gridData[i] !== target) {
       return false
@@ -79,6 +83,20 @@ const pickRandomBlockedNeighbor = (state, voidPos) => {
   return adj[idx]
 }
 
+const checkBackAndForth = (moveHistory) => {
+  if (moveHistory.length < 2) {
+    return false
+  }
+
+  const lastMove = moveHistory[moveHistory.length - 1]
+  const secondLastMove = moveHistory[moveHistory.length - 2]
+
+  return (
+    lastMove.from === secondLastMove.to &&
+    lastMove.to === secondLastMove.from
+  )
+}
+
 export default {
   namespaced: true,
 
@@ -88,12 +106,17 @@ export default {
       gridData: [],
       stepCount: 0,
       randomBlockMode: false,
+      freezeMode: false,
       blockedPosition: null,
       elapsedSeconds: 0,
       freeMoveTokens: 0,
       freeMoveTick: 0,
       gameCompleted: false,
       records: {},
+      moveHistory: [],
+      lastMoveTime: Date.now(),
+      isFastForward: false,
+      frozenTiles: [],
     }
   },
 
@@ -108,6 +131,7 @@ export default {
           pos: idx,
           num: val,
           isVoid: val === 0,
+          isFrozen: state.freezeMode && state.frozenTiles.includes(idx),
         }
       })
     },
@@ -146,6 +170,10 @@ export default {
 
       return FREE_MOVE_INTERVAL_SECONDS - state.freeMoveTick
     },
+
+    frozenTiles: (state) => {
+      return state.frozenTiles
+    },
   },
 
   mutations: {
@@ -163,6 +191,10 @@ export default {
 
     [MUTATIONS.SET_RANDOM_BLOCK_MODE]: (state, payload) => {
       state.randomBlockMode = payload
+    },
+
+    [MUTATIONS.SET_FREEZE_MODE]: (state, payload) => {
+      state.freezeMode = payload
     },
 
     [MUTATIONS.SET_BLOCKED_POSITION]: (state, payload) => {
@@ -187,6 +219,42 @@ export default {
 
     [MUTATIONS.SET_RECORDS]: (state, payload) => {
       state.records = { ...payload }
+    },
+
+    [MUTATIONS.SET_MOVE_HISTORY]: (state, payload) => {
+      state.moveHistory = payload
+    },
+
+    [MUTATIONS.SET_LAST_MOVE_TIME]: (state, payload) => {
+      state.lastMoveTime = payload
+    },
+
+    [MUTATIONS.SET_FAST_FORWARD]: (state, payload) => {
+      state.isFastForward = payload
+    },
+
+    [MUTATIONS.ADD_PENALTY_TIME]: (state, payload) => {
+      state.elapsedSeconds += payload
+    },
+
+    [MUTATIONS.SET_FROZEN_TILES]: (state, tiles) => {
+      state.frozenTiles = tiles
+    },
+
+    [MUTATIONS.UPDATE_FROZEN_TILES]: (state) => {
+      const total = state.boardSize * state.boardSize
+      const newFrozenTiles = []
+
+      for (let i = 0; i < total; i++) {
+        const expectedValue = (i < total - 1) ? (i + 1) : 0
+        const currentValue = state.gridData[i]
+
+        if (currentValue === expectedValue && currentValue !== 0) {
+          newFrozenTiles.push(i)
+        }
+      }
+
+      state.frozenTiles = newFrozenTiles
     },
   },
 
@@ -226,8 +294,8 @@ export default {
     persistRecords ({ state }) {
       try {
         window.localStorage.setItem(
-            STORAGE_KEY_PUZZLE_RECORDS,
-            JSON.stringify(state.records)
+          STORAGE_KEY_PUZZLE_RECORDS,
+          JSON.stringify(state.records)
         )
       } catch (e) {
         return
@@ -303,9 +371,14 @@ export default {
       commit(MUTATIONS.SET_FREE_MOVE_TOKENS, 0)
       commit(MUTATIONS.SET_FREE_MOVE_TICK, 0)
       commit(MUTATIONS.SET_GAME_COMPLETED, false)
+      commit(MUTATIONS.SET_MOVE_HISTORY, [])
+      commit(MUTATIONS.SET_LAST_MOVE_TIME, Date.now())
+      commit(MUTATIONS.SET_FAST_FORWARD, false)
+      commit(MUTATIONS.SET_FROZEN_TILES, [])
       commit(MUTATIONS.SET_GRID_DATA, createSolvedGrid(state.boardSize))
       dispatch('mixBoard')
       dispatch('rollBlockedNeighbor')
+      commit(MUTATIONS.UPDATE_FROZEN_TILES)
     },
 
     initGame ({ dispatch }) {
@@ -327,6 +400,30 @@ export default {
       dispatch('rollBlockedNeighbor')
     },
 
+    setFreezeMode ({ commit }, value) {
+      commit(MUTATIONS.SET_FREEZE_MODE, value)
+      commit(MUTATIONS.UPDATE_FROZEN_TILES)
+    },
+
+    recordMove ({ state, commit }, pos) {
+      const voidPos = state.gridData.indexOf(0)
+      const currentMove = { from: pos, to: voidPos }
+
+      const newHistory = [...state.moveHistory, currentMove]
+
+      if (newHistory.length > 10) {
+        newHistory.shift()
+      }
+
+      if (checkBackAndForth(newHistory)) {
+        commit(MUTATIONS.ADD_PENALTY_TIME, PENALTY_SECONDS)
+      }
+
+      commit(MUTATIONS.SET_MOVE_HISTORY, newHistory)
+      commit(MUTATIONS.SET_LAST_MOVE_TIME, Date.now())
+      commit(MUTATIONS.SET_FAST_FORWARD, false)
+    },
+
     tickSecond ({ state, commit, getters }) {
       if (state.gameCompleted) {
         return
@@ -336,15 +433,24 @@ export default {
         return
       }
 
-      commit(MUTATIONS.SET_ELAPSED_SECONDS, state.elapsedSeconds + 1)
+      const now = Date.now()
+      const diff = now - state.lastMoveTime
+
+      if (diff > FAST_FORWARD_DELAY) {
+        commit(MUTATIONS.SET_FAST_FORWARD, true)
+        commit(MUTATIONS.SET_ELAPSED_SECONDS, state.elapsedSeconds + 2)
+      } else {
+        commit(MUTATIONS.SET_FAST_FORWARD, false)
+        commit(MUTATIONS.SET_ELAPSED_SECONDS, state.elapsedSeconds + 1)
+      }
 
       const nextTick = state.freeMoveTick + 1
 
       if (nextTick >= FREE_MOVE_INTERVAL_SECONDS) {
         commit(MUTATIONS.SET_FREE_MOVE_TOKENS, state.freeMoveTokens + 1)
         commit(
-            MUTATIONS.SET_FREE_MOVE_TICK,
-            nextTick - FREE_MOVE_INTERVAL_SECONDS
+          MUTATIONS.SET_FREE_MOVE_TICK,
+          nextTick - FREE_MOVE_INTERVAL_SECONDS
         )
       } else {
         commit(MUTATIONS.SET_FREE_MOVE_TICK, nextTick)
@@ -360,6 +466,23 @@ export default {
 
       if (pos === voidPos) {
         return
+      }
+
+      if (state.frozenTiles.includes(pos)) {
+        return
+      }
+
+      if (state.frozenTiles.includes(voidPos)) {
+        return
+      }
+
+      const tileValue = state.gridData[pos]
+
+      if (state.freezeMode && tileValue !== 0) {
+        const correctPosition = tileValue - 1
+        if (pos === correctPosition) {
+          return
+        }
       }
 
       const adj = getAdjacent(state, voidPos)
@@ -380,19 +503,37 @@ export default {
     },
 
     applyMove ({ state, dispatch, commit, getters }, { voidPos, pos, useFreeToken }) {
-  commit(MUTATIONS.SET_STEP_COUNT, state.stepCount + 1)
+      commit(MUTATIONS.SET_STEP_COUNT, state.stepCount + 1)
 
-  if (useFreeToken) {
-    commit(MUTATIONS.SET_FREE_MOVE_TOKENS, Math.max(0, state.freeMoveTokens - 1))
-  }
+      if (useFreeToken) {
+        commit(MUTATIONS.SET_FREE_MOVE_TOKENS, Math.max(0, state.freeMoveTokens - 1))
+      }
 
-  dispatch('rollBlockedNeighbor')
-  if (getters.isWin) {
-    commit(MUTATIONS.SET_GAME_COMPLETED, true)
-    dispatch('saveBestTimeIfNeeded')
-  }
-  dispatch('switchCells', { p1: voidPos, p2: pos })
-},
+      dispatch('rollBlockedNeighbor')
+
+      if (getters.isWin) {
+        commit(MUTATIONS.SET_GAME_COMPLETED, true)
+        dispatch('saveBestTimeIfNeeded')
+      }
+
+      dispatch('switchCells', { p1: voidPos, p2: pos })
+      commit(MUTATIONS.UPDATE_FROZEN_TILES)
+
+      const currentMove = { from: pos, to: voidPos }
+      const newHistory = [...state.moveHistory, currentMove]
+
+      if (newHistory.length > 10) {
+        newHistory.shift()
+      }
+
+      if (checkBackAndForth(newHistory)) {
+        commit(MUTATIONS.ADD_PENALTY_TIME, PENALTY_SECONDS)
+      }
+
+      commit(MUTATIONS.SET_MOVE_HISTORY, newHistory)
+      commit(MUTATIONS.SET_LAST_MOVE_TIME, Date.now())
+      commit(MUTATIONS.SET_FAST_FORWARD, false)
+    },
 
     resizeBoardDelta ({ state, dispatch }, delta) {
       const next = state.boardSize + delta
