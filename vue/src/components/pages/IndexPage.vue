@@ -145,8 +145,9 @@ const IndexPage = defineComponent({
       }
     },
     formattedElapsed () {
-      return
+      return (
         this.formatSeconds(this.elapsedSeconds)
+      )
     },
     recordsList () {
       const keys = Object.keys(this.records).sort((a, b) => {
@@ -189,8 +190,7 @@ const IndexPage = defineComponent({
       const mm = String(m).padStart(2, '0')
       const ss = String(sec).padStart(2, '0')
 
-      return
-        `${mm}:${ss}`
+      return `${mm}:${ss}`
     },
 
     tileIsDisabled (pos) {
